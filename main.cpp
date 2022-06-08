@@ -1,115 +1,28 @@
+#define ARMA_USE_SUPERLU 1
+
 #include <iostream>
-#include <array>
-#include <fstream>
 #include <string>
 #include <vector>
 #include <armadillo>
+#include "Id.h"
 
-#include <TPolyMarker3D.h>
-#include <thread>
-#include <chrono>
-#include <TCanvas.h>
-#include <TEnv.h>
+//#include <TPolyMarker3D.h>
+//#include <TCanvas.h>
+//#include <TEnv.h>
+//#include <TROOT.h>
+//#include <TApplication.h>
+//#include <TRootCanvas.h>
 
 using namespace arma;
 
-constexpr uword SizeX = 41;
-constexpr uword SizeY = 41;
-constexpr uword SizeZ = 41;
-constexpr uword Sizes[3]{SizeX, SizeY, SizeZ};
-
-struct Id {
-  uword id;
-
-  explicit Id(uword id) : id(id) {}
-
-  Id(uword x, uword y, uword z) : id(x + y * SizeX + z * SizeX * SizeY) {}
-
-  static Id Invalid;
-
-  [[nodiscard]] bool is_valid() const {
-    return id != Invalid.id;
-  }
-
-  Id operator+(uword other) const {
-    return Id(id + other);
-  }
-
-  Id operator+(Id other) const {
-    return *this + other.id;
-  }
-
-  Id operator-(uword other) const {
-    return Id(id - other);
-  }
-
-  Id operator-(Id other) const {
-    return *this - other.id;
-  }
-
-  friend std::ostream &operator<<(std::ostream &os, const Id &id) {
-    const auto xyz = id.to_xyz();
-    os << "Id(" << id.id << "), " << "(" << xyz[0] << ", " << xyz[1] << ", " << xyz[2] << ")";
-    return os;
-  }
-
-  [[nodiscard]]
-  std::array<uword, 3> to_xyz() const {
-    std::array<uword, 3> ret = {this->id % SizeX, (this->id / SizeX) % SizeY, (this->id / SizeX / SizeY) % SizeZ};
-    return ret;
-  }
-
-  [[nodiscard]]
-  bool on_boundary() const {
-    auto xyz = to_xyz();
-    for (int i = 0; i < xyz.size(); ++i) {
-      uword coord = xyz[i];
-      if (coord == 0 || coord == Sizes[i] - 1)
-        return true;
-    }
-    return false;
-  }
-
-  /// If this point is not on the boundary, will return `Id::Invalid`
-  [[nodiscard]]
-  Id boundary_inner() const {
-    auto xyz = to_xyz();
-    uword x = xyz[0], y = xyz[1], z = xyz[2];
-    Id ret = x == 0 ? *this + 1
-                    : x == SizeX - 1 ? *this - 1
-                                     : y == 0 ? *this + SizeX
-                                              : y == SizeY - 1 ? *this - SizeX
-                                                               : z == 0 ? *this + SizeX * SizeY
-                                                                        : z == SizeZ - 1 ? *this - SizeX * SizeY
-                                                                                         : Id::Invalid;
-    if (!ret.is_valid()) {
-      std::cout << "No boundary for " << this << std::endl;
-      // todo
-//      throw
-    }
-    return ret;
-  }
-
-  [[nodiscard]]
-  std::array<Id, 6> adjacent() const {
-    return {*this + 1, *this - 1, *this + SizeX, *this - SizeX, *this + SizeX * SizeY, *this - SizeX * SizeY};
-  }
-};
-
-Id Id::Invalid = Id(std::numeric_limits<uword>::max());
-
-//struct Point {
-//  Id id;
-//};
-
 // todo command line args to config ROOT?
-bool ROOT_MODE = false;
+bool ROOT_MODE = true;
 
-int main() {
-  std::ifstream geom_file("../geometry_magnetic_network_L40_r0.5.ovf");
+void solve_voltages() {//  std::ifstream geom_file("../geometry_small_text.ovf");
+  std::ifstream geom_file("../geom/geometry_magnetic_network_L40_r0.5.ovf");
   if (!geom_file.is_open()) {
     std::cout << "Failed to read geometry file" << std::endl;
-    return 1;
+    return;
   }
 
   std::string line("#");
@@ -123,26 +36,55 @@ int main() {
     is_conductor.push_back(conducts);
     nconducting += conducts;
   }
-  std::cout << "is_conductor.size() = " << is_conductor.size() << std::endl;
+  const uword size = is_conductor.size();
+  std::cout << "is_conductor.size() = " << size << std::endl;
+
+  // todo this will be from geometry file somehow
+// map from point to voltage
+  std::map<Id, double> applied_voltages{
+      {Id(20, 20, 0),  -5},
+      {Id(20, 20, 40), 5}
+  };
+//  std::map<Id, double> applied_voltages{
+//      {Id(1, 5, 0),  -5},
+//      {Id(1, 5, SizeZ - 1), 5}
+//  };
 
   if (ROOT_MODE) {
-    auto *conductor_points = new TPolyMarker3D();
-    for (int id = 0; id < is_conductor.size(); ++id) {
-      if (is_conductor[id]) {
-        auto xyz = Id(id).to_xyz();
-        conductor_points->SetNextPoint(xyz[0], xyz[1], xyz[2]);
-      }
-    }
-    std::cout << "conductor_points.Size = " << conductor_points->Size() << std::endl;
-    conductor_points->SetMarkerStyle(kFullDotLarge);
-    conductor_points->Draw();
+//  argc = 0;
+//  argv = nullptr;
+//  auto *app = new TApplication("app", &argc, argv);
+//  auto *c = new TCanvas("c", "c");
+
+//    auto *conductor_points = new TPolyMarker3D();
+//    for (int id = 0; id < size; ++id) {
+//      if (is_conductor[id]) {
+//        auto xyz = Id(id).to_xyz();
+//        conductor_points->SetNextPoint(xyz[0], xyz[1], xyz[2]);
+//      }
+//    }
+//    std::cout << "conductor_points.Size = " << conductor_points->Size() << std::endl;
+//    conductor_points->SetMarkerStyle(kFullDotLarge);
+//    conductor_points->Draw();
+
+//  c->Show();
+
+//  c->Modified();
+//  c->Update();
+
+//  app->Run();
   }
 
-  sp_mat A(is_conductor.size(), is_conductor.size());
-  for (uword i = 0; i < is_conductor.size(); ++i) {
+  sp_mat A(size, size);
+  vec b(size);
+  for (uword i = 0; i < size; ++i) {
     const Id id(i);
     const auto idxyz = id.to_xyz();
-    if (is_conductor[i]) {
+    if (applied_voltages.find(id) != applied_voltages.end()) {
+      // applied voltages are conductors (since voltage is constant)
+      A(i, i) = 1;
+      b(i) = applied_voltages[id];
+    } else if (is_conductor[i] || id.on_corner()) {
       A(i, i) = 1;
     } else if (id.on_boundary()) {
       A(i, i) = 1;
@@ -156,7 +98,34 @@ int main() {
     }
   }
 
-  A.brief_print("A:");
+//  A.brief_print("A:");
 
-//  mat X = spsolve(A, B);
+//  mat(A).print("A:");
+
+  // todo: ±5V an/cathode, plot V -> E -> J
+
+  superlu_opts opts;
+  opts.symmetric = true;
+  // todo calibrate this
+  opts.pivot_thresh = 0.5;
+
+  mat X = spsolve(A, b, "superlu", opts);
+//  X.print("X: ");
+  X.save("../data/geometry_magnetic_network_L40_r0.5.bin");
+  X.save(csv_name("../data/geometry_magnetic_network_L40_r0.5.csv"));
+}
+
+void solve_e_field() {
+  cube x;
+  x.load("../data/top_bottom_voltages_L40_r0.5.csv");
+
+  cube Ex(SizeX - 1, SizeY - 1, SizeZ - 1);
+  cube Ey(SizeX - 1, SizeY - 1, SizeZ - 1);
+  cube Ez(SizeX - 1, SizeY - 1, SizeZ - 1);
+
+}
+
+int main() {
+//  solve_voltages();
+  solve_e_field();
 }
