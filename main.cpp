@@ -111,21 +111,60 @@ void solve_voltages() {//  std::ifstream geom_file("../geometry_small_text.ovf")
 
   mat X = spsolve(A, b, "superlu", opts);
 //  X.print("X: ");
-  X.save("../data/geometry_magnetic_network_L40_r0.5.bin");
-  X.save(csv_name("../data/geometry_magnetic_network_L40_r0.5.csv"));
+  X.save("../data/top_bottom_voltages_L40_r0.5.bin");
+  X.save(csv_name("../data/top_bottom_voltages_L40_r0.5.csv"));
 }
 
 void solve_e_field() {
-  cube x;
-  x.load("../data/top_bottom_voltages_L40_r0.5.csv");
+  // for some reason loading this as a cube doesn't work
+  mat voltage_data;
+  voltage_data.load("../data/top_bottom_voltages_L40_r0.5.bin");
 
-  cube Ex(SizeX - 1, SizeY - 1, SizeZ - 1);
-  cube Ey(SizeX - 1, SizeY - 1, SizeZ - 1);
-  cube Ez(SizeX - 1, SizeY - 1, SizeZ - 1);
+  cube voltages(SizeX, SizeY, SizeZ);
+  {
+    int z = 0;
+    voltages.each_slice([&](mat &slice) {
+      mat plane(mat(voltage_data(span(z, z + SizeX * SizeY), 0)));
+      plane.reshape(SizeX, SizeY);
+      slice = plane;
+    });
+  }
 
+//  cube Ex(SizeX - 1, SizeY - 1, SizeZ - 1);
+//  cube Ey(SizeX - 1, SizeY - 1, SizeZ - 1);
+//  cube Ez(SizeX - 1, SizeY - 1, SizeZ - 1);
+
+
+  for (uword z = 0; z < SizeZ; ++z) {
+    mat Vx0 = voltages.slice(z)(span(0, SizeX - 1), span::all);
+    mat Vx1 = voltages.slice(z)(span(1, SizeX), span::all);
+
+    mat Ex = Vx1 - Vx1;
+    Ex.print("Ex");
+    return;
+  }
+
+//  mat col
+//  voltages.cols(1, 1);
 }
 
 int main() {
-//  solve_voltages();
-  solve_e_field();
+  solve_voltages();
+//  solve_e_field();
+
+//  mat voltages;
+//  voltages.load("../data/top_bottom_voltages_L40_r0.5.bin");
+//  std::cout << "binCube.size() = " << voltages.size() << std::endl;
+//  std::cout << "binCube.has_nan() = " << voltages.has_nan() << std::endl;
+//
+//  cube X(41, 41, 41);
+//  {
+//    uword i = 0;
+////    X.each_slice([](mat &slice) { slice = })
+//    mat eT('j',)
+//  }
+
+//  binCube.load("../data/top_bottom_voltages_L40_r0.5.bin");
+//  std::cout << "binCube.size() = " << binCube.size() << std::endl;
+//  std::cout << "binCube.has_nan() = " << binCube.has_nan() << std::endl;
 }
