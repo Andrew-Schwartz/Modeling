@@ -5,17 +5,17 @@
 
 using namespace arma;
 
-constexpr uword SizeX = 41; // 20;
-constexpr uword SizeY = 41; // 20;
-constexpr uword SizeZ = 41; // 40;
+constexpr uword SizeX = 5; // 41; // 20;
+constexpr uword SizeY = 5; // 41; // 20;
+constexpr uword SizeZ = 10; // 41; // 40;
 constexpr uword Sizes[3]{SizeX, SizeY, SizeZ};
 
 struct Id {
   uword id;
 
   explicit Id(uword id);
-
   Id(uword x, uword y, uword z);
+  explicit Id(const uvec3 &xyz);
 
   static Id Invalid;
 
@@ -23,6 +23,8 @@ struct Id {
 
   Id operator+(uword other) const;
   Id operator+(Id other) const;
+  /// returns std::nullopt if this operation would result in an Id outside of the sample
+  std::optional<Id> operator+(const ivec3& displacement) const;
   Id operator-(uword other) const;
   Id operator-(Id other) const;
 
@@ -36,7 +38,7 @@ struct Id {
 
   friend std::ostream &operator<<(std::ostream &os, const Id &id);
 
-  [[nodiscard]] std::array<uword, 3> to_xyz() const;
+  [[nodiscard]] uvec3 to_xyz() const;
 
   [[nodiscard]] bool on_boundary() const;
 

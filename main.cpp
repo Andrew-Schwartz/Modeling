@@ -18,8 +18,9 @@ using namespace arma;
 // todo command line args to config ROOT?
 bool ROOT_MODE = true;
 
-void solve_voltages() {//  std::ifstream geom_file("../geometry_small_text.ovf");
-  std::ifstream geom_file("../geom/geometry_magnetic_network_L40_r0.5.ovf");
+void solve_voltages() {
+  std::ifstream geom_file("../geom/wires.ovf");
+//  std::ifstream geom_file("../geom/geometry_magnetic_network_L40_r0.5.ovf");
   if (!geom_file.is_open()) {
     std::cout << "Failed to read geometry file" << std::endl;
     return;
@@ -29,28 +30,36 @@ void solve_voltages() {//  std::ifstream geom_file("../geometry_small_text.ovf")
   for (; line.find('#') == 0; std::getline(geom_file, line)) {}
 
   std::vector<bool> is_conductor;
-  unsigned int nconducting = 0;
+  std::vector<Id> metal;
 
   for (; line.find('#') != 0; std::getline(geom_file, line)) {
     bool conducts = line.find('0') != 0;
+    if (conducts) {
+      metal.emplace_back(is_conductor.size());
+    }
     is_conductor.push_back(conducts);
-    nconducting += conducts;
   }
-  const uword size = is_conductor.size();
-  std::cout << "is_conductor.size() = " << size << std::endl;
+  const uword size = metal.size();
+  std::cout << "metal.size() = " << size << std::endl;
 
   // todo this will be from geometry file somehow
 // map from point to voltage
   std::map<Id, double> applied_voltages{
-      {Id(20, 20, 0),  -5},
-      {Id(20, 20, 40), 5}
+//      {Id(1, 1, 0),  0},
+//      {Id(1, 1, 2), 1}
   };
+  for (int y = 0; y < SizeY; ++y) {
+    for (int x = 0; x < SizeX; ++x) {
+      applied_voltages.emplace(Id(x, y, 0), 1);
+      applied_voltages.emplace(Id(x, y, SizeZ - 1), 0);
+    }
+  }
 //  std::map<Id, double> applied_voltages{
 //      {Id(1, 5, 0),  -5},
 //      {Id(1, 5, SizeZ - 1), 5}
 //  };
 
-  if (ROOT_MODE) {
+//  if (ROOT_MODE) {
 //  argc = 0;
 //  argv = nullptr;
 //  auto *app = new TApplication("app", &argc, argv);
@@ -73,18 +82,36 @@ void solve_voltages() {//  std::ifstream geom_file("../geometry_small_text.ovf")
 //  c->Update();
 
 //  app->Run();
-  }
+//  }
 
   sp_mat A(size, size);
   vec b(size);
   for (uword i = 0; i < size; ++i) {
-    const Id id(i);
-    const auto idxyz = id.to_xyz();
+    const Id id = metal[i];
     if (applied_voltages.find(id) != applied_voltages.end()) {
-      // applied voltages are conductors (since voltage is constant)
       A(i, i) = 1;
       b(i) = applied_voltages[id];
-    } else if (is_conductor[i] || id.on_corner()) {
+    } else {
+      int adj = 0;
+      for (const sword offset: {-1, 1}) {
+        for (const uword dim: {0, 1, 2}) {
+          ivec3 displacement;
+          displacement(dim) = offset;
+          auto other = id + displacement;
+          if (other) {
+            if (is_conductor[other->id]) {
+              uword metal_idx = std::find(metal.begin(), metal.end(), other) - metal.begin();
+              A(i, metal_idx) = 1;
+              adj++;
+            }
+          }
+        }
+      }
+      // because some points aren't in the domain, its not always -6 here (todo prove mathematically, but this *is*
+      //  correct because otherwise voltage doesn't propagate properly, due to it trying to go in all 6 directions)
+      A(i, i) = -adj;
+    }
+    /* else if (is_conductor[i] || id.on_corner()) {
       A(i, i) = 1;
     } else if (id.on_boundary()) {
       A(i, i) = 1;
@@ -95,12 +122,13 @@ void solve_voltages() {//  std::ifstream geom_file("../geometry_small_text.ovf")
         const auto adjxyz = adjacent.to_xyz();
         A(i, adjacent.id) = 1;
       }
-    }
+    }*/
   }
 
 //  A.brief_print("A:");
 
-//  mat(A).print("A:");
+  mat(A).print("A:");
+  b.print("b: ");
 
   // todo: ±5V an/cathode, plot V -> E -> J
 
@@ -111,8 +139,9 @@ void solve_voltages() {//  std::ifstream geom_file("../geometry_small_text.ovf")
 
   mat X = spsolve(A, b, "superlu", opts);
 //  X.print("X: ");
-  X.save("../data/top_bottom_voltages_L40_r0.5.bin");
-  X.save(csv_name("../data/top_bottom_voltages_L40_r0.5.csv"));
+  std::string file("../data/voltages_wires");
+  X.save(std::string(file).append(".bin"));
+  X.save(csv_name(file.append(".csv")));
 }
 
 void solve_e_field() {
@@ -124,7 +153,8 @@ void solve_e_field() {
   {
     int z = 0;
     voltages.each_slice([&](mat &slice) {
-      mat plane(mat(voltage_data(span(z, z + SizeX * SizeY), 0)));
+      mat plane(mat(voltage_data(span(z, z
+      +SizeX * SizeY), 0)));
       plane.reshape(SizeX, SizeY);
       slice = plane;
     });
@@ -139,7 +169,7 @@ void solve_e_field() {
     mat Vx0 = voltages.slice(z)(span(0, SizeX - 1), span::all);
     mat Vx1 = voltages.slice(z)(span(1, SizeX), span::all);
 
-    mat Ex = Vx1 - Vx1;
+    mat Ex = Vx1 - Vx0;
     Ex.print("Ex");
     return;
   }
@@ -151,20 +181,4 @@ void solve_e_field() {
 int main() {
   solve_voltages();
 //  solve_e_field();
-
-//  mat voltages;
-//  voltages.load("../data/top_bottom_voltages_L40_r0.5.bin");
-//  std::cout << "binCube.size() = " << voltages.size() << std::endl;
-//  std::cout << "binCube.has_nan() = " << voltages.has_nan() << std::endl;
-//
-//  cube X(41, 41, 41);
-//  {
-//    uword i = 0;
-////    X.each_slice([](mat &slice) { slice = })
-//    mat eT('j',)
-//  }
-
-//  binCube.load("../data/top_bottom_voltages_L40_r0.5.bin");
-//  std::cout << "binCube.size() = " << binCube.size() << std::endl;
-//  std::cout << "binCube.has_nan() = " << binCube.has_nan() << std::endl;
 }
