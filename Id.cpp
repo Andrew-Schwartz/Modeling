@@ -4,7 +4,6 @@
 #include <array>
 #include <iostream>
 #include "Id.h"
-#include "utils.h"
 
 Id Id::Invalid = Id(std::numeric_limits<arma::uword>::max());
 

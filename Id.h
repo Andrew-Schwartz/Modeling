@@ -47,6 +47,7 @@ struct Id {
   /// If this point is not on the boundary, will return `Id::Invalid`
   [[nodiscard]] Id boundary_inner() const;
 
+  /// x, y, z order with -1 before +1
   [[nodiscard]] std::array<Id, 6> adjacent() const;
 };
 
