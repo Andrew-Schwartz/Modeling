@@ -8,7 +8,3 @@ add_executable(Modeling main.cpp
         utils.h)
 
 target_link_libraries(Modeling armadillo)
-
-find_package(ROOT)
-target_link_libraries(Modeling ${ROOT_LIBRARIES})
-include_directories(${ROOT_INCLUDE_DIRS})

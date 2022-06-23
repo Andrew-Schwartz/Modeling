@@ -5,21 +5,20 @@
 
 using namespace arma;
 
-constexpr uword SizeX = 5; // 41; // 20;
-constexpr uword SizeY = 5; // 41; // 20;
-constexpr uword SizeZ = 10; // 41; // 40;
-constexpr uword Sizes[3]{SizeX, SizeY, SizeZ};
-
 struct Id {
+  static uword SizeX;
+  static uword SizeY;
+  static uword SizeZ;
+
+  static std::array<uword, 3> Sizes() {
+    return {SizeX, SizeY, SizeZ};
+  }
+
   uword id;
 
   explicit Id(uword id);
   Id(uword x, uword y, uword z);
   explicit Id(const uvec3 &xyz);
-
-  static Id Invalid;
-
-  [[nodiscard]] bool is_valid() const;
 
   Id operator+(uword other) const;
   Id operator+(Id other) const;
@@ -39,16 +38,6 @@ struct Id {
   friend std::ostream &operator<<(std::ostream &os, const Id &id);
 
   [[nodiscard]] uvec3 to_xyz() const;
-
-  [[nodiscard]] bool on_boundary() const;
-
-  [[nodiscard]] bool on_corner() const;
-
-  /// If this point is not on the boundary, will return `Id::Invalid`
-  [[nodiscard]] Id boundary_inner() const;
-
-  /// x, y, z order with -1 before +1
-  [[nodiscard]] std::array<Id, 6> adjacent() const;
 };
 
 #endif //MODELING_ID_H
