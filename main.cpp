@@ -1,6 +1,7 @@
 #define ARMA_USE_SUPERLU 1
 
 #include <iostream>
+#include <iomanip>
 #include <string>
 #include <vector>
 #include <armadillo>
@@ -100,7 +101,33 @@ struct Geometry {
   }
 };
 
-struct Solver {
+struct SolverOpts {
+  /// ignore spin texture in input file and treat this direction as the unit vector spin for all magnetic points
+  std::optional<vec3> uniform_spin;
+
+  /// if one of the points in the voltage file is not in the network, fall back to the closest point(s) to it
+  bool use_closest_point;
+};
+
+class Solver {
+  static std::string make_name(
+      const std::string &geom_name,
+      const std::string &voltage_name,
+      const SolverOpts &opts
+  ) {
+    std::ostringstream name;
+    name << geom_name << "_" << voltage_name;
+//    auto name = std::string(geom_name).append("_").append(voltage_name);
+    if (opts.uniform_spin) {
+      name << std::fixed << std::setprecision(1);
+      name << "_spin" << opts.uniform_spin->at(0)
+           << "," << opts.uniform_spin->at(1)
+           << "," << opts.uniform_spin->at(2);
+    }
+    return name.str();
+  }
+
+public:
   std::string name;
   Geometry geom;
   std::map<Id, double> applied_volts;
@@ -109,26 +136,112 @@ struct Solver {
   mat e_field;
   mat current;
 
-  explicit Solver(const std::string &geometry_name, const std::string &voltage_name)
-      : name(std::string(geometry_name).append("_").append(voltage_name)),
+  Solver(const std::string &geometry_name, const std::string &voltage_name, const SolverOpts &opts = SolverOpts())
+      : name(make_name(geometry_name, voltage_name, opts)),
         geom(Geometry::from_file(std::string("../geom/").append(geometry_name).append(".ovf"))) {
+    if (opts.uniform_spin) {
+      std::fill(geom.spins.begin(), geom.spins.end(), *opts.uniform_spin);
+    }
+
     auto path = std::string("../geom/volts_").append(voltage_name).append(".tsv");
     std::ifstream volt_file(path);
     if (!volt_file.is_open()) {
       throw std::ios_base::failure(std::string("Failed to read volt file '").append(path).append("'"));
     }
 
-    uword x, y, z;
-    double volts;
+    // todo subclass exception
+    std::vector<std::string> split;
+    auto stoull = [&split](size_t idx) { return std::stoull(split[idx]); };
+    auto stod = [&split](size_t idx) { return std::stod(split[idx]); };
     for (std::string line; std::getline(volt_file, line);) {
-      std::istringstream(line) >> x >> y >> z >> volts;
-      applied_volts.emplace(Id(x, y, z), volts);
+      split.clear();
+      std::istringstream stream(line);
+      std::string tmp;
+      while (stream >> tmp) {
+        split.push_back(tmp);
+      }
+      // id, volts
+      if (split.size() == 2) {
+        applied_volts.emplace(Id(stoull(0)), stod(1));
+      } else if (split.size() == 4) {
+        // todo finish this maybe if it will be useful
+//        std::array<std::vector<uword>, 3> xyz;
+//        for (size_t dim: {0, 1, 2}) {
+//
+//          auto str = split[dim];
+//          if (str.find(">=") != std::string::npos) {
+//            uword min = std::stoull(str.substr(std::strlen(">=")));
+//            for (uword i = min; i < Id::Sizes()[dim]; ++i)
+//              xyz[dim].push_back(i);
+//          } else if (str.find(">") != std::string::npos) {
+//            uword min = std::stoull(str.substr(std::strlen(">")));
+//            for (uword i = min; i < Id::Sizes()[dim]; ++i)
+//              xyz[dim].push_back(i);
+//          } else if (str.find("<=") != std::string::npos) {
+//            uword min = std::stoull(str.substr(std::strlen("<=")));
+//            for (uword i = 0; i < Id::Sizes()[dim]; ++i)
+//              xyz[dim].push_back(i);
+//          }
+//        }
+        applied_volts.emplace(Id(stoull(0), stoull(1), stoull(2)), stod(3));
+      } else {
+        throw std::runtime_error(std::string("Unable to parse voltage line: ").append(line));
+      }
+    }
+    // bad id -> good id
+    std::map<Id, Id> replacements;
+    bool any_not_in_metal = false;
+    for (const auto &[id, v]: applied_volts) {
+      // if not in the metal, print the closest ids
+      if (!geom.metal_idx[id.id]) {
+        any_not_in_metal = true;
+        std::cout << id << " is not a point in the network" << std::endl;
+        double min_dist = std::numeric_limits<double>::max();
+        std::vector<Id> closest;
+        for (const Id &other: geom.metal) {
+          const double dist = id.dist3d(other);
+          if (dist < min_dist) {
+            min_dist = dist;
+            closest = {other};
+          } else if (dist == min_dist) {
+            closest.push_back(other);
+          }
+        }
+        std::cout << (closest.size() > 1 ? "These are" : "This is")
+                  << " the closest point"
+                  << (closest.size() > 1 ? "s" : "")
+                  << ", "
+                  << min_dist
+                  << " units away:"
+                  << std::endl;
+        for (const Id &close: closest) {
+          std::cout << close << std::endl;
+        }
+        if (opts.use_closest_point) {
+          Id use = closest[0];
+          std::cout << (closest.size() > 1 ? "The first" : "This") << " point will be used instead\n" << std::endl;
+          replacements.emplace(id, use);
+        } else {
+          std::cout << std::endl;
+        }
+      }
+    }
+    if (opts.use_closest_point) {
+      for (const auto &[bad, good]: replacements) {
+        auto node = applied_volts.extract(bad);
+        node.key() = good;
+        applied_volts.insert(std::move(node));
+      }
+    } else if (any_not_in_metal && !opts.use_closest_point) {
+      throw std::runtime_error(
+          "Invalid points used in voltage configuration. Choose different points or enable `SolverOpts.use_closest_point`."
+      );
     }
   }
 
-  void save(const mat &data, const csv_name &name) const {
+  void save(const mat &data, const csv_name &file_name) const {
     const mat &save = join_rows(geom.xyz(), data);
-    save.save(name);
+    save.save(file_name);
   }
 
   void solve_voltages() {
@@ -136,14 +249,6 @@ struct Solver {
 
     const uword size = metal.size();
     std::cout << "metal.size() = " << size << std::endl;
-
-    // todo this will be from geometry file somehow
-// map from point to voltage
-//    std::map<Id, double> applied_voltages{
-//        {Id(0, 0, 0),                         1},
-//        {Id(SizeX - 1, SizeY - 1, SizeZ - 1), 0},
-//    };
-//    applied_volts = applied_voltages;
 
     sp_mat A(size, size);
     vec b(size);
@@ -233,17 +338,37 @@ struct Solver {
       current(i, span::all) = j;
     }
 
-    field<std::string> header{"x","y","z","jx","jy","jz"};
+    field<std::string> header{"x", "y", "z", "jx", "jy", "jz"};
     save(current, csv_name(std::string("../data/current_").append(name).append(".csv"), header));
   }
 };
 
 int main() {
-//  Solver solver("wires_weird2", "four_wires_three");
-//  Solver solver("spin_wire4current_1_B=0.0", "sw4c10.0_corners");
+  /*
+   * 0.0: 0.0055   0.0059   0.0079
+   * 0.1: 0.0102   0.0097   0.0153
+   *   z: 0.0061   0.0063   0.0132
+   *   y: 0.0061   0.0126   0.0066
+   *   x: 0.0123   0.0063   0.0066
+   */
+  SolverOpts opts{
+//    .uniform_spin = std::make_optional(vec3 {0, 0, 1})
+//    .uniform_spin = std::make_optional(vec3 {0, 1, 0})
+//    .uniform_spin = std::make_optional(vec3 {1, 0, 0})
+      .use_closest_point = true
+  };
+//  Solver solver("wires", "four_wires_all");
 //  Solver solver("cube", "cube555corners");
-  Solver solver("1d", "1d");
+//  Solver solver("1d", "1d", opts);
+  Solver solver("spin_wire4current_3_B=0.0", "sw4c10.0_corners", opts);
   solver.solve_voltages();
   solver.solve_e_field();
   solver.solve_current();
+
+  for (const auto &[id, volts]: solver.applied_volts) {
+    if (volts == 0) {
+      auto current_row = solver.current(*solver.geom.metal_idx[id.id], span::all);
+      std::cout << id << ", current = " << current_row;
+    }
+  }
 }

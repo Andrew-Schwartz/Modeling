@@ -2,6 +2,29 @@
 
 using namespace arma;
 
+/// for parsing utilites
+struct str {
+  const std::string &string;
+
+  explicit str(const std::string &string) : string(string) {}
+
+  bool starts_with(const std::string &needle) {
+    return string.find(needle) == 0;
+  }
+
+  bool contains(const std::string &needle) {
+    return string.find(needle) != std::string::npos;
+  }
+
+//  const std::string &operator*() {
+//    return string;
+//  }
+
+  const std::string *operator->() {
+    return &string;
+  }
+};
+
 template<uword N, typename T>
 typename Col<T>::template fixed<N> array_to_vec(const std::array<T, N> &array) {
   typename Col<T>::template fixed<N> col;
@@ -21,7 +44,7 @@ bool eq(typename Col<T>::template fixed<N> a, typename Col<T>::template fixed<N>
 
 // todo make this work for any T - idk why it didn't
 //template<typename T>
-std::optional<double> map_opt(std::optional<double> opt, const std::function<double(double)>& f) {
+std::optional<double> map_opt(std::optional<double> opt, const std::function<double(double)> &f) {
   return opt
          ? std::make_optional(f(*opt))
          : std::nullopt;

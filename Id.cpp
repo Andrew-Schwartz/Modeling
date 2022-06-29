@@ -76,3 +76,12 @@ uvec3 Id::to_xyz() const {
   uvec3 ret = {id % SizeX, (id / SizeX) % SizeY, (id / SizeX / SizeY) % SizeZ};
   return ret;
 }
+
+double Id::dist3d(const Id &other) const {
+  uvec3 xyz = to_xyz(),
+      oxyz = other.to_xyz();
+  double sum_of_squares = 0;
+  for (int i = 0; i < 3; ++i)
+    sum_of_squares += std::pow(sword(xyz(i)) - sword(oxyz(i)), 2);
+  return std::sqrt(sum_of_squares);
+}

@@ -38,6 +38,8 @@ struct Id {
   friend std::ostream &operator<<(std::ostream &os, const Id &id);
 
   [[nodiscard]] uvec3 to_xyz() const;
+
+  [[nodiscard]] double dist3d(const Id &other) const;
 };
 
 #endif //MODELING_ID_H
