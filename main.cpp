@@ -107,6 +107,9 @@ struct SolverOpts {
 
   /// if one of the points in the voltage file is not in the network, fall back to the closest point(s) to it
   bool use_closest_point;
+
+  /// uniform spin pointing from -s_hat to s_hat
+  bool vary_spins;
 };
 
 class Solver {
@@ -131,6 +134,9 @@ public:
   std::string name;
   Geometry geom;
   std::map<Id, double> applied_volts;
+  bool save_files = true;
+  vec3 s_hat;
+  mat33 rotation;
 
   mat voltage;
   mat e_field;
@@ -237,9 +243,26 @@ public:
           "Invalid points used in voltage configuration. Choose different points or enable `SolverOpts.use_closest_point`."
       );
     }
+    if (opts.vary_spins) {
+      save_files = false;
+      if (applied_volts.size() != 2
+//      || std::none_of(applied_volts.begin(), applied_volts.end(), [](const auto &[id, v]) { return v == 0; })
+          ) {
+        throw std::runtime_error("Can only vary spins with 1 input and 1 output port");
+      }
+      Id input(0), output(0);
+      for (const auto &[id, v]: applied_volts) {
+        if (v == 0) output = id;
+        else input = id;
+      }
+      vec3 s = conv_fixed<3, uword, double>(output.to_xyz() - input.to_xyz());
+      s_hat = normalise(s);
+      std::cout << "s_hat = " << s_hat << std::endl;
+    }
   }
 
   void save(const mat &data, const csv_name &file_name) const {
+    if (!save_files) return;
     const mat &save = join_rows(geom.xyz(), data);
     save.save(file_name);
   }
@@ -341,9 +364,41 @@ public:
     field<std::string> header{"x", "y", "z", "jx", "jy", "jz"};
     save(current, csv_name(std::string("../data/current_").append(name).append(".csv"), header));
   }
+
+  void rotate_spin() {
+    // perpendicular to s_hat so we can rotate around it
+    vec3 rotation_axis {s_hat(1), -s_hat(0), 0};
+    rotation_axis = normalise(rotation_axis);
+
+    Id output_id = std::find_if(applied_volts.cbegin(), applied_volts.cend(), [](const auto &pair) { return pair.second == 0; })->first;
+    uword output_idx = *geom.metal_idx[output_id.id];
+
+    const int n_rotations = 360;
+    mat current_magnitude(n_rotations, 2); 
+    for (int degrees = 0; degrees < n_rotations; ++degrees) {
+      const double theta = degrees * datum::pi / 180.0;
+      vec3 spin = rotate_vector(rotation_axis, theta, s_hat);
+      std::fill(geom.spins.begin(), geom.spins.end(), spin);
+      solve_current();
+      rowvec out = current(output_idx, span::all);
+      current_magnitude(degrees, span::all) = {theta, norm(out)};
+    }
+    field<std::string> header{"theta", "|j|"};
+    current_magnitude.save(csv_name(join_string("../data/current_varied_", name, ".csv"), header));
+  }
 };
 
+// 1 in 1 out
+// vector n from in to out, rotate spin from negative n to positive n
+
 int main() {
+  Solver solver("spin_wire4current_1_B=0.0", "sw4c10.0_corners",
+                SolverOpts{.use_closest_point = true, .vary_spins = true});
+  solver.solve_voltages();
+  solver.solve_e_field();
+
+  solver.rotate_spin();
+
   /*
    * 0.0: 0.0055   0.0059   0.0079
    * 0.1: 0.0102   0.0097   0.0153
@@ -351,12 +406,53 @@ int main() {
    *   y: 0.0061   0.0126   0.0066
    *   x: 0.0123   0.0063   0.0066
    */
-  SolverOpts opts{
+  /*
+  std::vector<Solver> solvers{
+      Solver("spin_wire4current_1_B=0.0", "sw4c10.0_corners", SolverOpts{std::make_optional(vec3{0, 0, 1}), true}),
+      Solver("spin_wire4current_1_B=0.0", "sw4c10.0_corners", SolverOpts{std::make_optional(vec3{0, 0, -1}), true}),
+      Solver("spin_wire4current_1_B=0.0", "sw4c10.0_corners", SolverOpts{std::make_optional(vec3{0, 1, 0}), true}),
+      Solver("spin_wire4current_1_B=0.0", "sw4c10.0_corners", SolverOpts{std::make_optional(vec3{1, 0, 0}), true}),
+      Solver("spin_wire4current_1_B=0.0", "sw4c10.0_corners", SolverOpts{.use_closest_point = true}),
+      Solver("spin_wire4current_1_B=0.1", "sw4c10.0_corners", SolverOpts{.use_closest_point = true}),
+      Solver("spin_wire4current_1_B=0.0", "sw4c10.0_three", SolverOpts{std::make_optional(vec3{0, 0, 1}), true}),
+      Solver("spin_wire4current_1_B=0.0", "sw4c10.0_three", SolverOpts{std::make_optional(vec3{0, 0, -1}), true}),
+      Solver("spin_wire4current_1_B=0.0", "sw4c10.0_three", SolverOpts{std::make_optional(vec3{0, 1, 0}), true}),
+      Solver("spin_wire4current_1_B=0.0", "sw4c10.0_three", SolverOpts{std::make_optional(vec3{1, 0, 0}), true}),
+      Solver("spin_wire4current_1_B=0.0", "sw4c10.0_three", SolverOpts{.use_closest_point = true}),
+      Solver("spin_wire4current_1_B=0.1", "sw4c10.0_three", SolverOpts{.use_closest_point = true}),
+      Solver("spin_wire4current_1_B=0.0", "sw4c10.0_more", SolverOpts{std::make_optional(vec3{0, 0, 1}), true}),
+      Solver("spin_wire4current_1_B=0.0", "sw4c10.0_more", SolverOpts{std::make_optional(vec3{0, 0, -1}), true}),
+      Solver("spin_wire4current_1_B=0.0", "sw4c10.0_more", SolverOpts{std::make_optional(vec3{0, 1, 0}), true}),
+      Solver("spin_wire4current_1_B=0.0", "sw4c10.0_more", SolverOpts{std::make_optional(vec3{1, 0, 0}), true}),
+      Solver("spin_wire4current_1_B=0.0", "sw4c10.0_more", SolverOpts{.use_closest_point = true}),
+      Solver("spin_wire4current_1_B=0.1", "sw4c10.0_more", SolverOpts{.use_closest_point = true}),
+  };
+
+  std::ofstream out("../data/spin_wires4current_1_output_current.txt");
+
+  for (Solver solver: std::move(solvers)) {
+    solver.solve_voltages();
+    solver.solve_e_field();
+    solver.solve_current();
+    out << "-----------------------\n"
+        << solver.name
+        << std::endl;
+    for (const auto &[id, volts]: solver.applied_volts) {
+      if (volts == 0) {
+        auto current_row = solver.current(*solver.geom.metal_idx[id.id], span::all);
+        out << id << ", current = " << current_row;
+      }
+    }
+  }
+  out << "-----------------------" << std::endl;*/
+
+/*  SolverOpts opts{
 //    .uniform_spin = std::make_optional(vec3 {0, 0, 1})
 //    .uniform_spin = std::make_optional(vec3 {0, 1, 0})
 //    .uniform_spin = std::make_optional(vec3 {1, 0, 0})
       .use_closest_point = true
   };
+
 //  Solver solver("wires", "four_wires_all");
 //  Solver solver("cube", "cube555corners");
 //  Solver solver("1d", "1d", opts);
@@ -370,5 +466,5 @@ int main() {
       auto current_row = solver.current(*solver.geom.metal_idx[id.id], span::all);
       std::cout << id << ", current = " << current_row;
     }
-  }
+  }*/
 }

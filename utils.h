@@ -2,29 +2,6 @@
 
 using namespace arma;
 
-/// for parsing utilites
-struct str {
-  const std::string &string;
-
-  explicit str(const std::string &string) : string(string) {}
-
-  bool starts_with(const std::string &needle) {
-    return string.find(needle) == 0;
-  }
-
-  bool contains(const std::string &needle) {
-    return string.find(needle) != std::string::npos;
-  }
-
-//  const std::string &operator*() {
-//    return string;
-//  }
-
-  const std::string *operator->() {
-    return &string;
-  }
-};
-
 template<uword N, typename T>
 typename Col<T>::template fixed<N> array_to_vec(const std::array<T, N> &array) {
   typename Col<T>::template fixed<N> col;
@@ -42,13 +19,24 @@ bool eq(typename Col<T>::template fixed<N> a, typename Col<T>::template fixed<N>
   return true;
 }
 
-// todo make this work for any T - idk why it didn't
-//template<typename T>
-std::optional<double> map_opt(std::optional<double> opt, const std::function<double(double)> &f) {
-  return opt
-         ? std::make_optional(f(*opt))
-         : std::nullopt;
+template<uword N, typename T, typename R>
+typename Col<R>::template fixed<N> conv_fixed(typename Col<T>::template fixed<N> input) {
+  typename Col<R>::template fixed<N> ret;
+  for (uword i = 0; i < N; ++i)
+    ret(i) = static_cast<R>(input(i));
+  return ret;
 }
 
-//template<uword N, typename T>
-//std::array<T, N> vec_to_array()
+/// Rotates `input` by `theta` around `axis`.
+///
+/// Rotation math from end of https://en.wikipedia.org/wiki/Rotation_matrix#Rotation_matrix_from_axis_and_angle
+vec3 rotate_vector(const vec3 &axis, double theta, const vec3 &input) {
+  return axis * (dot(axis, input)) + cos(theta) * cross(cross(axis, input), axis) + sin(theta) * cross(axis, input);
+}
+
+template<typename ...T>
+std::string join_string(const T&... args) {
+  std::ostringstream stream;
+  (stream << ... << args);
+  return stream.str();
+}
